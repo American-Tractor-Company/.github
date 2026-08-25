@@ -24,7 +24,12 @@ jobs:
     name: program / task-id
     runs-on: ubuntu-latest
     steps:
+      - name: Skip outside pull requests
+        if: github.event_name != 'pull_request'
+        run: |
+          echo "task-id is a PR gate; ${{ github.event_name }} events pass (enforcement already happened on the PR)."
       - name: Fetch the plan (strict mode when a plan token is available)
+        if: github.event_name == 'pull_request'
         id: plan
         env:
           GH_TOKEN: ${{ secrets.PLAN_TOKEN || github.token }}
@@ -37,9 +42,12 @@ jobs:
             echo "strict=false" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-python@v5
+        if: github.event_name == 'pull_request'
         with: {python-version: "3.12"}
-      - run: pip install pyyaml
+      - if: github.event_name == 'pull_request'
+        run: pip install pyyaml
       - name: Resolve the task
+        if: github.event_name == 'pull_request'
         env:
           STRICT: ${{ steps.plan.outputs.strict }}
           BRANCH: ${{ github.head_ref || github.ref_name }}
