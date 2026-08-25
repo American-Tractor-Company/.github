@@ -1,0 +1,32 @@
+name: Decision (ADR)
+description: A choice that changes an interface, a dependency or a cost envelope.
+labels: ["type:decision"]
+body:
+  - type: input
+    id: title
+    attributes: {label: "Decision", placeholder: "Which OTA agent for Jetson: Mender or RAUC"}
+    validations: {required: true}
+  - type: textarea
+    id: context
+    attributes: {label: Context, description: "Forces at play. Link the paper section and blocked tasks."}
+    validations: {required: true}
+  - type: textarea
+    id: options
+    attributes: {label: Options, description: "One line each, with the trade-off."}
+    validations: {required: true}
+  - type: input
+    id: needed_by
+    attributes: {label: "Needed by (task / gate)", placeholder: "G-03 / M3"}
+    validations: {required: true}
+  - type: dropdown
+    id: owner
+    attributes:
+      label: Decider
+      options: ["Cloud Eng", "ML Eng", "Robotics Eng", "Sim Eng", "Agent Eng", "Safety Eng", "Ops Lead", "PM"]
+    validations: {required: true}
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Before closing
+      options:
+        - {label: "An ADR file exists in docs/adr/ with status accepted", required: false}

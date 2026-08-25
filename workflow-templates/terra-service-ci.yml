@@ -1,0 +1,28 @@
+name: ci
+
+on:
+  pull_request:
+  push: {branches: [main]}
+  merge_group:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  python:
+    uses: American-Tractor-Company/.github/.github/workflows/wf-python-ci.yml@v1
+  container:
+    needs: python
+    uses: American-Tractor-Company/.github/.github/workflows/wf-container-build.yml@v1
+    with:
+      image: REPLACE-ME
+      environment: dev
+      push: ${{ github.ref == 'refs/heads/main' }}
+    secrets:
+      WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+      WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+  security:
+    uses: American-Tractor-Company/.github/.github/workflows/wf-security.yml@v1
+  program:
+    uses: American-Tractor-Company/.github/.github/workflows/wf-task-id.yml@v1

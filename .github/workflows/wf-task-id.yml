@@ -1,0 +1,70 @@
+name: wf-task-id
+
+# Reusable: the check that keeps the plan honest. A PR must either resolve to a task in
+# terra-program/program/tasks.yaml (via the branch name or a `Task:` trailer) or be
+# labelled type:bug / type:chore / type:spike.
+#
+# Strict mode needs a token that can read terra-program (the TERRA Automation App, exposed
+# as the org secret TERRA_PLAN_TOKEN). The default GITHUB_TOKEN cannot read another private
+# repo, so without it the check falls back to validating the id format and warns.
+on:
+  workflow_call:
+    inputs:
+      plan-repo: {type: string, default: "American-Tractor-Company/terra-program"}
+      plan-path: {type: string, default: "program/tasks.yaml"}
+    secrets:
+      PLAN_TOKEN: {required: false}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  task-id:
+    name: program / task-id
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch the plan (strict mode when a plan token is available)
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.PLAN_TOKEN || github.token }}
+        run: |
+          if gh api "repos/${{ inputs.plan-repo }}/contents/${{ inputs.plan-path }}" \
+               -H "Accept: application/vnd.github.raw" > tasks.yaml 2>/dev/null; then
+            echo "strict=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::could not read ${{ inputs.plan-repo }} — checking the task id format only. Set the org secret TERRA_PLAN_TOKEN for strict mode."
+            echo "strict=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install pyyaml
+      - name: Resolve the task
+        env:
+          STRICT: ${{ steps.plan.outputs.strict }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          TITLE: ${{ github.event.pull_request.title }}
+          BODY: ${{ github.event.pull_request.body }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          python3 - <<'PY'
+          import os, re, sys, yaml, pathlib
+          strict = os.environ.get("STRICT") == "true"
+          ids = set()
+          if strict and pathlib.Path("tasks.yaml").exists():
+              ids = {t["id"] for t in yaml.safe_load(open("tasks.yaml"))["tasks"]}
+          text = "\n".join([os.environ.get("BRANCH",""), os.environ.get("TITLE",""), os.environ.get("BODY","")])
+          labels = set(filter(None, os.environ.get("LABELS","").split(",")))
+          found = set(re.findall(r"\b[A-H]-\d{2}\b", text))
+          exempt = labels & {"type:bug", "type:chore", "type:spike", "dependencies"}
+          if exempt:
+              print(f"OK exempt via label {sorted(exempt)}")
+          elif found and (not strict or found & ids):
+              print(f"OK task {sorted(found)}" + ("" if strict else " (format only — plan not readable)"))
+          elif found:
+              print(f"::error::{sorted(found)} is not a task in the plan — add it to program/tasks.yaml, or label this PR type:bug / type:chore")
+              sys.exit(1)
+          else:
+              print("::error::no task id. Name the branch feat/<TASK-ID>-slug, add a \'Task: <ID>\' trailer, or label this PR type:bug / type:chore / type:spike")
+              sys.exit(1)
+          PY

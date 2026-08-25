@@ -1,0 +1,7 @@
+{
+  "name": "TERRA docs CI",
+  "description": "Markdown lint, link check, mermaid render, optional safety-evidence resolution.",
+  "iconName": "octicon book",
+  "categories": ["Continuous integration", "TERRA"],
+  "filePatterns": ["README.md$"]
+}

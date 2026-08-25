@@ -1,0 +1,57 @@
+name: wf-edge-image
+
+# Reusable: cross-build the Jetson Thor stack, unit-test under QEMU, run a
+# hardware-in-the-loop smoke test on the bench Thor, publish the image.
+on:
+  workflow_call:
+    inputs:
+      target:      {type: string, default: "t5000"}     # t5000 (dev kit) | t4000 (production)
+      jetpack:     {type: string, default: "7.0"}
+      run-hil:     {type: boolean, default: true}
+      publish:     {type: boolean, default: false}
+    secrets:
+      WIF_PROVIDER: {required: false}
+      WIF_SERVICE_ACCOUNT: {required: false}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  cross-build:
+    name: edge / cross-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with: {platforms: arm64}
+      - uses: docker/setup-buildx-action@v3
+      - name: Build for ${{ inputs.target }} (JetPack ${{ inputs.jetpack }})
+        run: |
+          docker buildx build --platform linux/arm64 \
+            --build-arg JETPACK=${{ inputs.jetpack }} --build-arg TARGET=${{ inputs.target }} \
+            -t terra-edge:${{ github.sha }} --load .
+      - name: Unit tests under QEMU
+        run: docker run --rm --platform linux/arm64 terra-edge:${{ github.sha }} pytest -q
+      - uses: actions/upload-artifact@v4
+        with: {name: "edge-${{ inputs.target }}-${{ github.sha }}", path: "out/", retention-days: 14}
+
+  hil-smoke:
+    name: edge / hil-smoke
+    needs: cross-build
+    if: inputs.run-hil
+    runs-on: [self-hosted, linux, arm64, thor]     # the bench Thor + VIU harness
+    environment: bench
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: "edge-${{ inputs.target }}-${{ github.sha }}", path: "out/"}
+      - name: Flash the bench kit and replay a synthetic drive
+        run: ./bench/flash.sh out/ && ./bench/replay.sh fixtures/synthetic-drive.mcap
+      - name: Assert the 10 Hz control loop and p99 cycle latency
+        run: ./bench/assert-latency.py --hz 10 --p99-ms 100 --report out/latency.json
+      - name: Assert the safety island still owns the vehicle
+        run: ./bench/assert-safety.py --estop --geofence --watchdog
+      - uses: actions/upload-artifact@v4
+        with: {name: "hil-report-${{ github.sha }}", path: "out/latency.json", retention-days: 90}

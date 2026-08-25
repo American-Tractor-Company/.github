@@ -1,0 +1,43 @@
+name: wf-node-ci
+
+# Reusable: lint, type-check, unit + smoke test a TypeScript front end.
+on:
+  workflow_call:
+    inputs:
+      node-version:      {type: string, default: "22"}
+      bundle-budget-kb:  {type: number, default: 400}
+      run-playwright:    {type: boolean, default: true}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ci / lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: "${{ inputs.node-version }}", cache: npm}
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+
+  test:
+    name: ci / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: "${{ inputs.node-version }}", cache: npm}
+      - run: npm ci
+      - run: npx vitest run --dir src
+      - name: Playwright smoke
+        if: inputs.run-playwright
+        run: npx playwright install --with-deps chromium && npm run test:e2e -- --grep @smoke
+      - name: Bundle budget
+        run: |
+          npm run build
+          size=$(du -sk dist | cut -f1)
+          echo "bundle ${size} kB (budget ${{ inputs.bundle-budget-kb }} kB)"
+          [ "$size" -le "${{ inputs.bundle-budget-kb }}" ] || { echo "::error::bundle over budget"; exit 1; }

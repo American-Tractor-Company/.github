@@ -1,0 +1,36 @@
+name: Bug
+description: Something in the loop is broken.
+labels: ["type:bug"]
+body:
+  - type: dropdown
+    id: workstream
+    attributes:
+      label: Workstream
+      options: ["A hardware", "B cloud", "C factory", "D sim", "E agents", "F pilot", "G release", "H ops"]
+    validations: {required: true}
+  - type: input
+    id: where
+    attributes: {label: "Repo / component", placeholder: "terra-data / dataflow decode stage"}
+    validations: {required: true}
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the run ID, drive ID or bundle version. "It failed" is not reproducible.
+    validations: {required: true}
+  - type: textarea
+    id: expected
+    attributes: {label: What should have happened}
+    validations: {required: true}
+  - type: dropdown
+    id: safety
+    attributes:
+      label: Safety relevance
+      options:
+        - "None — cloud or tooling only"
+        - "Could affect a gate result"
+        - "Touches the safety island, ODD or a released bundle"
+    validations: {required: true}
+  - type: input
+    id: gate
+    attributes: {label: "Blocks which gate?", placeholder: "M3 / none"}

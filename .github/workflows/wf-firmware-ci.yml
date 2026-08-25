@@ -1,0 +1,55 @@
+name: wf-firmware-ci
+
+# Reusable: safety-island firmware. Static analysis, unit tests, HIL bench run,
+# and a retained test record — this workflow's artifacts are certification evidence.
+on:
+  workflow_call:
+    inputs:
+      board:        {type: string, default: "viu-rev-b"}
+      evidence-bucket: {type: string, default: "gs://atc-terra-evidence/viu"}
+    secrets:
+      WIF_PROVIDER: {required: false}
+      WIF_SERVICE_ACCOUNT: {required: false}
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    name: firmware / build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {submodules: recursive}
+      - name: Toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-arm-none-eabi cppcheck
+      - run: make BOARD=${{ inputs.board }} -j
+      - name: Static analysis (MISRA subset)
+        run: cppcheck --enable=all --error-exitcode=1 --addon=misra.py src/
+      - run: make test
+      - uses: actions/upload-artifact@v4
+        with: {name: "firmware-${{ github.sha }}", path: "build/*.bin", retention-days: 90}
+
+  hil-bench:
+    name: firmware / hil-bench
+    needs: build
+    runs-on: [self-hosted, linux, arm64, thor]
+    environment: bench
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: "firmware-${{ github.sha }}", path: "build/"}
+      - name: Flash the VIU and replay CAN/ISOBUS traces
+        run: ./bench/flash-viu.sh build/ && ./bench/replay-can.sh traces/
+      - name: Safety paths — E-stop, geofence, watchdog
+        run: ./bench/safety-suite.py --report record.json --require-latency-ms 200
+      - name: Publish the test record as retained evidence
+        env:
+          RECORD: record.json
+        run: |
+          gcloud storage cp "$RECORD" "${{ inputs.evidence-bucket }}/${{ github.run_id }}/record.json"
+          echo "evidence: ${{ inputs.evidence-bucket }}/${{ github.run_id }}/record.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with: {name: "hil-record-${{ github.run_id }}", path: "record.json", retention-days: 400}

@@ -1,0 +1,25 @@
+name: Risk
+description: A known unknown that could cost us a gate.
+labels: ["type:risk"]
+body:
+  - type: input
+    id: title
+    attributes: {label: Risk}
+    validations: {required: true}
+  - type: textarea
+    id: impact
+    attributes: {label: "If it happens", description: "Which tasks and gates slip, and by how much."}
+    validations: {required: true}
+  - type: textarea
+    id: mitigation
+    attributes: {label: "Mitigation / early signal", description: "What we do now, and what tells us early."}
+    validations: {required: true}
+  - type: input
+    id: tasks
+    attributes: {label: "Tasks it threatens", placeholder: "C-02, C-06"}
+  - type: dropdown
+    id: owner
+    attributes:
+      label: Owner
+      options: ["Cloud Eng", "ML Eng", "Robotics Eng", "Sim Eng", "Agent Eng", "Safety Eng", "Ops Lead", "PM"]
+    validations: {required: true}

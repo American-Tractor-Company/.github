@@ -1,0 +1,47 @@
+name: wf-schema-compat
+
+# Reusable: the contract check for terra-schemas. A schema change that breaks a consumer
+# without a major version bump fails here, not in the field.
+on:
+  workflow_call:
+    inputs:
+      baseline-ref: {type: string, default: ""}   # defaults to the last released tag
+
+permissions:
+  contents: read
+
+jobs:
+  compat:
+    name: schema / backward-compat
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install pyyaml jsonschema protobuf
+      - id: base
+        run: |
+          ref="${{ inputs.baseline-ref }}"
+          [ -z "$ref" ] && ref="$(git describe --tags --abbrev=0 --match 'terra-schemas-v*' 2>/dev/null || echo '')"
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+      - name: Diff against ${{ steps.base.outputs.ref }}
+        if: steps.base.outputs.ref != ''
+        run: ./tools/schema-diff.py --base "${{ steps.base.outputs.ref }}" --head HEAD --report diff.json
+      - name: Fail on an unversioned break
+        if: steps.base.outputs.ref != ''
+        run: ./tools/schema-gate.py --report diff.json --version-file VERSION
+
+  sdk:
+    name: schema / sdk-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - uses: actions/setup-node@v4
+        with: {node-version: "22"}
+      - name: Generate and compile the Python, TypeScript and C++ SDKs
+        run: make sdks
+      - name: Round-trip a golden MCAP through every SDK
+        run: make golden-roundtrip

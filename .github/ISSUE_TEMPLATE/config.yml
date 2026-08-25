@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Program plan — the 73 Phase-0 tasks and the five gates
+    url: https://github.com/American-Tractor-Company/terra-program
+    about: Planned work is tracked there, not per repo. Open a Plan change issue to alter it.
+  - name: How we work — branching, PRs, releases
+    url: https://github.com/American-Tractor-Company/terra-program/blob/main/docs/02-git-workflow.md
+    about: Branch naming, commit trailers, review rules by repo class.
+  - name: Ops on-call
+    url: https://github.com/American-Tractor-Company/terra-ops/blob/main/oncall.md
+    about: Something is broken in staging or prod right now.

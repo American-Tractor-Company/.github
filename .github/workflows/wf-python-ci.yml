@@ -1,0 +1,39 @@
+name: wf-python-ci
+
+# Reusable: lint, type-check, test and audit a Python package.
+#   uses: American-Tractor-Company/.github/.github/workflows/wf-python-ci.yml@v1
+on:
+  workflow_call:
+    inputs:
+      python-version: {type: string, default: "3.12"}
+      package-dir:    {type: string, default: "."}
+      coverage-floor: {type: number, default: 70}
+      runs-on:        {type: string, default: "ubuntu-latest"}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: ci / lint
+    runs-on: ${{ inputs.runs-on }}
+    defaults: {run: {working-directory: "${{ inputs.package-dir }}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras --dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy .
+
+  test:
+    name: ci / test
+    runs-on: ${{ inputs.runs-on }}
+    defaults: {run: {working-directory: "${{ inputs.package-dir }}"}}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --all-extras --dev
+      - run: uv run pytest -q --cov --cov-report=term-missing --cov-fail-under=${{ inputs.coverage-floor }}
+      - run: uv run pip-audit --strict
+        continue-on-error: false

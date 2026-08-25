@@ -1,0 +1,7 @@
+{
+  "name": "TERRA service CI",
+  "description": "Python lint/test, container build with WIF + cosign, security floor, and the program task-id check.",
+  "iconName": "octicon package",
+  "categories": ["Continuous integration", "TERRA"],
+  "filePatterns": ["Dockerfile$", "pyproject.toml$"]
+}

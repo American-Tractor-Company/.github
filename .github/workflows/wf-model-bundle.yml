@@ -1,0 +1,93 @@
+name: wf-model-bundle
+
+# Reusable: registry checkpoint -> TensorRT NVFP4 engines -> release gates -> signed OCI
+# bundle -> channel manifest PR. This is Figure 8 of the architecture, as a workflow.
+#
+# It never talks to a tractor. The last step opens a PR against channels/<channel>.yaml;
+# machines pull what the merged manifest names.
+on:
+  workflow_call:
+    inputs:
+      checkpoint:  {type: string, required: true}    # vertex registry model version
+      track:       {type: string, required: true}    # terra-drive | terra-reason | terra-world
+      targets:     {type: string, default: "t5000,t4000"}
+      channel:     {type: string, default: "dev"}    # dev | canary | fleet
+    secrets:
+      WIF_PROVIDER: {required: true}
+      WIF_SERVICE_ACCOUNT: {required: true}
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+jobs:
+  build:
+    name: bundle / tensorrt
+    runs-on: [self-hosted, linux, x64, g4]
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+      - id: v
+        run: echo "version=${{ inputs.track }}-$(date -u +%Y.%m.%d)-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Distill + quantize + build engines
+        run: ./bundle/build.py --checkpoint "${{ inputs.checkpoint }}" --targets "${{ inputs.targets }}" --out out/
+      - uses: actions/upload-artifact@v4
+        with: {name: "engines-${{ steps.v.outputs.version }}", path: "out/", retention-days: 30}
+
+  gates:
+    name: bundle / gates
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.gate.outputs.verdict }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+      - name: Submit the eval jobs (open-loop, closed-loop, perception, edge)
+        id: eval
+        run: ./gates/run.py --version "${{ needs.build.outputs.version }}" --wait --out gates.json
+      - name: Scenario coverage — fail on any untested family
+        run: ./gates/coverage.py --gates gates.json --library scenarios/index.yaml --require-all
+      - name: Compare against the current production bundle
+        id: gate
+        run: ./gates/compare.py --gates gates.json --channel "${{ inputs.channel }}" --out verdict.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: "gates-${{ needs.build.outputs.version }}"
+          path: |
+            gates.json
+            verdict.json
+          retention-days: 400
+
+  publish:
+    name: bundle / sign & publish
+    needs: [build, gates]
+    if: needs.gates.outputs.verdict == 'pass'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.channel }}          # canary/fleet require reviewers + wait timer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: {name: "engines-${{ needs.build.outputs.version }}", path: "out/"}
+      - uses: actions/download-artifact@v4
+        with: {name: "gates-${{ needs.build.outputs.version }}", path: "out/evidence/"}
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+      - name: Assemble the OCI bundle with SBOM and provenance
+        run: ./bundle/pack.py --in out/ --version "${{ needs.build.outputs.version }}" --push
+      - name: Sign with the release KMS key
+        run: cosign sign --key "${{ vars.COSIGN_KEY_REF }}" --yes "$(cat out/digest.txt)"
+      - name: Open the channel promotion PR
+        run: ./bundle/promote.py --version "${{ needs.build.outputs.version }}" \
+               --channel "${{ inputs.channel }}" --gates out/evidence/gates.json --open-pr
